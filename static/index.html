@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Humograph Voice Agent</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎙️</text></svg>">
+  <link rel="stylesheet" href="/static/css/style.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <header class="topbar">
+    <h1>Humograph Voice Agent</h1>
+    <nav class="tabs" role="tablist">
+      <button class="tab active" data-tab="stt" role="tab">Voice → Text</button>
+      <button class="tab" data-tab="tts" role="tab">Text → Voice</button>
+    </nav>
+  </header>
+
+  <main class="layout">
+    <!-- ============ 3D avatar ============ -->
+    <section class="stage">
+      <div id="avatar" class="avatar">
+        <div id="avatar-loading" class="avatar-loading">
+          <span id="avatar-loading-text">Loading 3D human… 0%</span>
+          <div class="progress"><div id="avatar-progress"></div></div>
+        </div>
+        <div id="avatar-state" class="avatar-state">Idle</div>
+
+        <div class="avatar-toolbar" role="toolbar" aria-label="Viewer tools">
+          <button data-action="zoom-in" title="Zoom in (+)">＋</button>
+          <button data-action="zoom-out" title="Zoom out (−)">－</button>
+          <button data-action="reset" title="Reset view (R)">⟲</button>
+          <button data-action="auto-rotate" title="Auto-rotate (O)" aria-pressed="false">⟳</button>
+          <button data-action="fullscreen" title="Fullscreen (Shift+F)">⛶</button>
+          <button data-action="screenshot" title="Save screenshot (P)">📷</button>
+        </div>
+
+        <div id="avatar-tooltip" class="avatar-tooltip" hidden></div>
+
+        <div id="avatar-label" class="avatar-label" hidden>
+          <div class="avatar-label-text">
+            <strong id="avatar-label-text"></strong>
+            <span id="avatar-label-category" class="avatar-label-category"></span>
+          </div>
+          <button data-part-action="focus" title="Focus (F)">Focus</button>
+          <button data-part-action="hide" title="Hide (H)">Hide</button>
+          <button data-part-action="isolate" title="Isolate (I)">Isolate</button>
+          <button data-part-action="speak" title="Say the name">🔊</button>
+          <button data-part-action="clear" title="Deselect (Esc)">✕</button>
+        </div>
+      </div>
+
+      <div class="controls-panel">
+        <!-- View -->
+        <details open>
+          <summary>View</summary>
+          <div class="btn-grid">
+            <button data-view="front">Front</button>
+            <button data-view="back">Back</button>
+            <button data-view="left">Left</button>
+            <button data-view="right">Right</button>
+            <button data-view="top">Top</button>
+            <button data-view="body">Full body</button>
+            <button data-view="upper">Upper body</button>
+            <button data-view="head">Head</button>
+          </div>
+          <div class="ctrl-grid">
+            <label>Field of view <output id="fov-out">30°</output>
+              <input id="ctl-fov" type="range" min="15" max="75" step="1" value="30">
+            </label>
+            <label>Brightness <output id="exposure-out">1.0</output>
+              <input id="ctl-exposure" type="range" min="0.3" max="2.5" step="0.1" value="1">
+            </label>
+            <label>Auto-rotate speed <output id="rotate-speed-out">1.5</output>
+              <input id="ctl-rotate-speed" type="range" min="0.2" max="8" step="0.1" value="1.5">
+            </label>
+          </div>
+          <div class="check-row">
+            <label><input id="ctl-auto-rotate" type="checkbox"> Auto-rotate</label>
+            <label><input id="ctl-wireframe" type="checkbox"> Wireframe</label>
+            <label><input id="ctl-hover" type="checkbox"> Hover labels</label>
+          </div>
+        </details>
+
+        <!-- Skin -->
+        <details open>
+          <summary>Skin</summary>
+          <div class="ctrl-grid">
+            <label>Mode
+              <select id="ctl-skin-mode">
+                <option value="hologram" selected>Hologram</option>
+                <option value="solid">Solid</option>
+                <option value="hidden">Hidden</option>
+              </select>
+            </label>
+            <label>Hologram color
+              <input id="ctl-skin-color" type="color" value="#4fd6ff">
+            </label>
+            <label>Glow intensity <output id="skin-intensity-out">1.0</output>
+              <input id="ctl-skin-intensity" type="range" min="0" max="3" step="0.1" value="1">
+            </label>
+          </div>
+        </details>
+
+        <!-- Layers -->
+        <details open>
+          <summary>Layers</summary>
+          <div class="btn-row">
+            <button id="layers-show-all">Show all</button>
+            <button id="layers-hide-all">Hide all</button>
+            <button id="layers-reset">Reset</button>
+          </div>
+          <div id="layers" class="layer-list"></div>
+        </details>
+
+        <!-- Parts -->
+        <details open>
+          <summary>Parts</summary>
+          <label>Search <span class="muted">(e.g. heart, femur, molar, nerve)</span>
+            <input id="part-search" type="search" placeholder="Search 1,200+ body parts…" autocomplete="off">
+          </label>
+          <ul id="part-results" class="part-results"></ul>
+          <div class="btn-row">
+            <button id="parts-show-hidden" disabled>Show hidden parts</button>
+            <button id="parts-clear">Clear selection</button>
+          </div>
+        </details>
+
+        <!-- Cross-section -->
+        <details>
+          <summary>Cross-section</summary>
+          <div class="check-row">
+            <label><input id="ctl-section" type="checkbox"> Enable cut</label>
+            <label><input id="ctl-section-flip" type="checkbox"> Flip side</label>
+          </div>
+          <div class="ctrl-grid">
+            <label>Axis
+              <select id="ctl-section-axis">
+                <option value="y" selected>Horizontal (top ↔ bottom)</option>
+                <option value="x">Sagittal (left ↔ right)</option>
+                <option value="z">Coronal (front ↔ back)</option>
+              </select>
+            </label>
+            <label>Position <output id="section-out">50%</output>
+              <input id="ctl-section-pos" type="range" min="0" max="1" step="0.005" value="0.5">
+            </label>
+          </div>
+        </details>
+
+        <!-- Explode -->
+        <details>
+          <summary>Explode</summary>
+          <label>Separation <output id="explode-out">0%</output>
+            <input id="ctl-explode" type="range" min="0" max="1" step="0.01" value="0">
+          </label>
+        </details>
+
+        <!-- Mouth & voice -->
+        <details>
+          <summary>Mouth &amp; voice</summary>
+          <div class="ctrl-grid">
+            <label>Lip-sync sensitivity <output id="sensitivity-out">7</output>
+              <input id="ctl-sensitivity" type="range" min="1" max="20" step="0.5" value="7">
+            </label>
+            <label>Max jaw opening <output id="jaw-max-out">11°</output>
+              <input id="ctl-jaw-max" type="range" min="2" max="25" step="1" value="11">
+            </label>
+            <label>Manual mouth <output id="jaw-manual-out">0%</output>
+              <input id="ctl-jaw-manual" type="range" min="0" max="1" step="0.01" value="0">
+            </label>
+          </div>
+          <div class="btn-row">
+            <button id="ctl-test-talk">Test talking</button>
+          </div>
+        </details>
+
+        <!-- Shortcuts -->
+        <details>
+          <summary>Shortcuts</summary>
+          <ul class="shortcuts">
+            <li><kbd>Click</kbd> select part · <kbd>Double-click</kbd> select &amp; focus</li>
+            <li><kbd>Drag</kbd> rotate · <kbd>Right-drag</kbd> pan · <kbd>Scroll</kbd> zoom</li>
+            <li><kbd>F</kbd> focus · <kbd>H</kbd> hide · <kbd>I</kbd> isolate · <kbd>A</kbd> show hidden · <kbd>Esc</kbd> deselect</li>
+            <li><kbd>R</kbd> reset view · <kbd>O</kbd> auto-rotate · <kbd>+</kbd>/<kbd>−</kbd> zoom · <kbd>P</kbd> screenshot · <kbd>Shift+F</kbd> fullscreen</li>
+            <li><kbd>1</kbd>–<kbd>8</kbd> views: front, back, left, right, top, body, upper, head</li>
+          </ul>
+        </details>
+
+        <p id="avatar-stats" class="stats muted"></p>
+      </div>
+    </section>
+
+    <div class="workspace">
+    <!-- ============ Speech to text ============ -->
+    <section id="panel-stt" class="panel active">
+      <div class="card">
+        <div class="row">
+          <label>Language
+            <select id="stt-language">
+              <option value="">Auto-detect</option>
+              <option value="en" selected>English</option>
+              <option value="ur">Urdu</option>
+              <option value="hi">Hindi</option>
+              <option value="ar">Arabic</option>
+              <option value="es">Spanish</option>
+              <option value="fr">French</option>
+              <option value="de">German</option>
+              <option value="pt">Portuguese</option>
+              <option value="tr">Turkish</option>
+              <option value="zh">Chinese</option>
+              <option value="ja">Japanese</option>
+            </select>
+          </label>
+          <label>Model
+            <select id="stt-model">
+              <option value="whisper-large-v3" selected>whisper-large-v3 (most accurate)</option>
+              <option value="whisper-large-v3-turbo">whisper-large-v3-turbo (faster)</option>
+            </select>
+          </label>
+        </div>
+        <label>Vocabulary hint <span class="muted">(optional — names, jargon, spelling)</span>
+          <input id="stt-prompt" type="text" maxlength="1000" placeholder="e.g. Humograph, FastAPI, Groq, Tayyab">
+        </label>
+
+        <div class="controls">
+          <button id="record-btn" class="primary">● Start recording</button>
+          <span id="record-timer" class="timer">00:00</span>
+          <div class="meter" aria-hidden="true"><div id="level-bar"></div></div>
+        </div>
+        <div class="controls">
+          <label class="file-btn">Upload audio file
+            <input id="file-input" type="file" accept="audio/*,video/webm,video/mp4" hidden>
+          </label>
+          <audio id="playback" controls hidden></audio>
+        </div>
+        <p id="stt-status" class="status"></p>
+      </div>
+
+      <div class="card" id="stt-result" hidden>
+        <div class="result-head">
+          <h2>Transcript</h2>
+          <span id="stt-meta" class="muted"></span>
+        </div>
+        <ul id="stt-warnings" class="warnings"></ul>
+        <textarea id="stt-text" rows="6"></textarea>
+        <div class="controls">
+          <button id="copy-btn">Copy</button>
+          <button id="speak-transcript-btn">Speak it back</button>
+        </div>
+        <details>
+          <summary>Segments</summary>
+          <ol id="stt-segments" class="segments"></ol>
+        </details>
+      </div>
+    </section>
+
+    <!-- ============ Text to speech ============ -->
+    <section id="panel-tts" class="panel">
+      <div class="card">
+        <label>Text
+          <textarea id="tts-text" rows="8" placeholder="Type or paste text to speak..."></textarea>
+        </label>
+        <div class="row">
+          <label>Engine
+            <select id="tts-engine">
+              <option value="neural" selected>Neural voice (Groq Orpheus) — most natural</option>
+              <option value="browser">Browser voice — offline, robotic</option>
+            </select>
+          </label>
+          <label>Voice
+            <select id="tts-voice"></select>
+          </label>
+        </div>
+        <div class="row">
+          <label>Rate <output id="rate-out">1.0</output>
+            <input id="tts-rate" type="range" min="0.5" max="2" step="0.1" value="1">
+          </label>
+          <label>Pitch <output id="pitch-out">1.0</output>
+            <input id="tts-pitch" type="range" min="0" max="2" step="0.1" value="1">
+          </label>
+          <label>Volume <output id="volume-out">1.0</output>
+            <input id="tts-volume" type="range" min="0" max="1" step="0.1" value="1">
+          </label>
+        </div>
+        <div class="controls">
+          <button id="speak-btn" class="primary">▶ Speak</button>
+          <button id="pause-btn" disabled>Pause</button>
+          <button id="stop-btn" disabled>Stop</button>
+        </div>
+        <p id="tts-status" class="status"></p>
+        <p id="tts-now" class="now-speaking"></p>
+      </div>
+    </section>
+    </div>
+  </main>
+
+  <script type="module" src="/static/js/app.js"></script>
+</body>
+</html>
